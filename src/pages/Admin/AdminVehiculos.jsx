@@ -15,6 +15,7 @@ import {
   TableBody,
   IconButton,
   Alert,
+  Chip,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -24,17 +25,19 @@ import { useNavigate } from "react-router-dom";
 
 export default function AdminVehiculos() {
   const navigate = useNavigate();
-  const [vehiculos, setVehiculos] = useState([]);
+  const [planes, setPlanes] = useState([]);
   const [error, setError] = useState("");
 
   const load = async () => {
     setError("");
     try {
+      // Opción A: mantenemos endpoint /vehiculos, pero ahora devuelve planes
       const data = await api("/api/admin/vehiculos", { method: "GET" });
-      setVehiculos(Array.isArray(data) ? data : []);
+      setPlanes(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e.message);
-      if ((e.message || "").toLowerCase().includes("no autorizado") || (e.message || "").toLowerCase().includes("token")) {
+      const msg = (e.message || "").toLowerCase();
+      if (msg.includes("no autorizado") || msg.includes("token")) {
         navigate("/admin");
       }
     }
@@ -46,7 +49,7 @@ export default function AdminVehiculos() {
   }, []);
 
   const onDelete = async (id) => {
-    if (!window.confirm("¿Eliminar este vehículo?")) return;
+    if (!window.confirm("¿Eliminar este plan?")) return;
     try {
       await api(`/api/admin/vehiculos/${id}`, { method: "DELETE" });
       await load();
@@ -66,54 +69,103 @@ export default function AdminVehiculos() {
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
           <Box>
             <Typography variant="h4" fontWeight={900}>
-              Vehículos
+              Planes Funerarios
             </Typography>
-            <Typography color="text.secondary">Crea, edita o elimina vehículos del catálogo.</Typography>
+            <Typography color="text.secondary">
+              Crea, edita o elimina planes. Se guardan en <b>planes.json</b>.
+            </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
             <Button variant="outlined" startIcon={<LogoutIcon />} onClick={logout}>
               Salir
             </Button>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate("/admin/vehiculos/nuevo")}>
-              Nuevo
+              Nuevo Plan
             </Button>
           </Stack>
         </Stack>
 
-        {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
+        {error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        ) : null}
 
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><b>Marca</b></TableCell>
-                  <TableCell><b>Modelo</b></TableCell>
-                  <TableCell><b>Año</b></TableCell>
-                  <TableCell><b>Precio</b></TableCell>
-                  <TableCell><b>Acciones</b></TableCell>
+                  <TableCell>
+                    <b>Nombre</b>
+                  </TableCell>
+                  <TableCell>
+                    <b>Incluye</b>
+                  </TableCell>
+                  <TableCell>
+                    <b>Ataúdes</b>
+                  </TableCell>
+                  <TableCell>
+                    <b>Activo</b>
+                  </TableCell>
+                  <TableCell>
+                    <b>Acciones</b>
+                  </TableCell>
                 </TableRow>
               </TableHead>
+
               <TableBody>
-                {vehiculos.map((v) => (
-                  <TableRow key={v.id}>
-                    <TableCell>{v.marca}</TableCell>
-                    <TableCell>{v.modelo}</TableCell>
-                    <TableCell>{v.anio ?? "-"}</TableCell>
-                    <TableCell>{v.precio ?? "-"}</TableCell>
+                {planes.map((p) => (
+                  <TableRow key={p.id}>
                     <TableCell>
-                      <IconButton onClick={() => navigate(`/admin/vehiculos/${v.id}`)} title="Editar">
+                      <b>{p.nombre}</b>
+                      {p.descripcionCorta ? (
+                        <Typography variant="body2" color="text.secondary">
+                          {p.descripcionCorta}
+                        </Typography>
+                      ) : null}
+                    </TableCell>
+
+                    <TableCell>
+                      {(Array.isArray(p.incluye) ? p.incluye : [])
+                        .slice(0, 3)
+                        .map((x, idx) => (
+                          <Typography key={idx} variant="body2">
+                            • {x}
+                          </Typography>
+                        ))}
+                      {(Array.isArray(p.incluye) ? p.incluye.length : 0) > 3 ? (
+                        <Typography variant="body2" color="text.secondary">
+                          + más...
+                        </Typography>
+                      ) : null}
+                    </TableCell>
+
+                    <TableCell>
+                      {(Array.isArray(p.ataudes) ? p.ataudes : []).slice(0, 3).map((a, idx) => (
+                        <Chip key={idx} label={a} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
+                      ))}
+                      {(Array.isArray(p.ataudes) ? p.ataudes.length : 0) > 3 ? (
+                        <Chip label="+ más" size="small" />
+                      ) : null}
+                    </TableCell>
+
+                    <TableCell>{p.activo === false ? "No" : "Sí"}</TableCell>
+
+                    <TableCell>
+                      <IconButton onClick={() => navigate(`/admin/vehiculos/${p.id}`)} title="Editar">
                         <EditIcon />
                       </IconButton>
-                      <IconButton onClick={() => onDelete(v.id)} title="Eliminar">
+                      <IconButton onClick={() => onDelete(p.id)} title="Eliminar">
                         <DeleteIcon />
                       </IconButton>
                     </TableCell>
                   </TableRow>
                 ))}
-                {!vehiculos.length ? (
+
+                {!planes.length ? (
                   <TableRow>
-                    <TableCell colSpan={5}>No hay vehículos registrados.</TableCell>
+                    <TableCell colSpan={5}>No hay planes registrados.</TableCell>
                   </TableRow>
                 ) : null}
               </TableBody>
