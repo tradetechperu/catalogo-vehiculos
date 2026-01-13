@@ -33,7 +33,8 @@ function resolveImg(src) {
 export default function FormVehiculo() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const isNew = id === "nuevo";
+  const isNew = !id || id === "nuevo";
+
 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
