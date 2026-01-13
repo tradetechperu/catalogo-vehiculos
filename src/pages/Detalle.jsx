@@ -9,6 +9,8 @@ import {
   Stack,
   Card,
   CardContent,
+  CardActionArea,
+  CardMedia,
   Grid,
   Chip,
   Button,
@@ -31,13 +33,13 @@ import { useNavigate, useParams } from "react-router-dom";
 const WHATSAPP_PHONE = (process.env.REACT_APP_WHATSAPP_PHONE || "").replace(/\D/g, "");
 const CONTACT_PHONE = (process.env.REACT_APP_CONTACT_PHONE || "").replace(/\D/g, "");
 
-function formatMoney(value) {
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("es-PE", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
+// Si tus imágenes vienen como /uploads/...
+const BACKEND = process.env.REACT_APP_BACKEND_ORIGIN || "";
+function resolveImg(src) {
+  if (!src) return "";
+  if (src.startsWith("http://") || src.startsWith("https://")) return src;
+  if (BACKEND && src.startsWith("/uploads/")) return `${BACKEND}${src}`;
+  return src;
 }
 
 function buildWhatsappLink({ phone, text }) {
@@ -46,20 +48,71 @@ function buildWhatsappLink({ phone, text }) {
   return `https://wa.me/${phone}?text=${msg}`;
 }
 
+function toArray(x) {
+  if (!x) return [];
+  if (Array.isArray(x)) return x;
+  if (typeof x === "string") {
+    return x
+      .split(/\r?\n|,/g)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Normaliza fotos para soportar:
+ * - string[]: ["/uploads/a.jpg", ...]
+ * - objetos: [{ src, titulo }, { url, caption }, ...]
+ * - también respeta fotoPrincipal si existe
+ */
+function normalizeFotos(plan) {
+  const principal = plan?.fotoPrincipal ? { src: plan.fotoPrincipal, titulo: "" } : null;
+  const raw = plan?.galeriaFotos || plan?.fotos || [];
+
+  const list = (Array.isArray(raw) ? raw : []).map((x) => {
+    if (!x) return null;
+    if (typeof x === "string") return { src: x, titulo: "" };
+    // intenta varias convenciones
+    const src = x.src || x.url || x.path || x.foto || "";
+    const titulo = x.titulo || x.caption || x.nombre || x.label || "";
+    return src ? { src, titulo } : null;
+  }).filter(Boolean);
+
+  // Dedup por src
+  const seen = new Set();
+  const out = [];
+  const push = (it) => {
+    if (!it?.src) return;
+    if (seen.has(it.src)) return;
+    seen.add(it.src);
+    out.push(it);
+  };
+
+  if (principal) push(principal);
+  list.forEach(push);
+
+  // Si no hay principal, toma primera como principal "lógica"
+  return out;
+}
+
 export default function Detalle() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [v, setV] = useState(null);
+
+  const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // --- Zoom modal state ---
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoomSrc, setZoomSrc] = useState("");
+  const [zoomCaption, setZoomCaption] = useState("");
   const [zoom, setZoom] = useState(1);
 
-  const openZoom = (src) => {
+  const openZoom = (src, caption = "") => {
     if (!src) return;
     setZoomSrc(src);
+    setZoomCaption(caption || "");
     setZoom(1);
     setZoomOpen(true);
   };
@@ -67,6 +120,7 @@ export default function Detalle() {
   const closeZoom = () => {
     setZoomOpen(false);
     setZoomSrc("");
+    setZoomCaption("");
     setZoom(1);
   };
 
@@ -79,12 +133,15 @@ export default function Detalle() {
     (async () => {
       try {
         setLoading(true);
-        const r = await apiFetch(`/api/vehiculos/${id}`);
+
+        // CAMBIO CLAVE: planes
+        const r = await apiFetch(`/api/planes/${id}`);
         if (!r.ok) throw new Error("Not found");
         const data = await r.json();
-        if (alive) setV(data);
+
+        if (alive) setPlan(data);
       } catch (e) {
-        if (alive) setV(null);
+        if (alive) setPlan(null);
       } finally {
         if (alive) setLoading(false);
       }
@@ -95,28 +152,34 @@ export default function Detalle() {
     };
   }, [id]);
 
-  const tituloVehiculo = useMemo(() => {
-    if (!v) return "";
-    return `${v.marca || ""} ${v.modelo || ""}`.trim() || "Vehículo";
-  }, [v]);
+  const tituloPlan = useMemo(() => {
+    if (!plan) return "";
+    return (plan.nombre || plan.titulo || "Plan funerario").trim();
+  }, [plan]);
+
+  const incluyeList = useMemo(() => toArray(plan?.incluye), [plan]);
+  const ataudesList = useMemo(() => toArray(plan?.ataudes || plan?.ataud || plan?.productos), [plan]);
+
+  const fotos = useMemo(() => normalizeFotos(plan), [plan]);
+
+  // Para reutilizar CarouselSimple (que probablemente espera string[])
+  const carouselFotos = useMemo(() => fotos.map((f) => f.src), [fotos]);
 
   const whatsappText = useMemo(() => {
-    if (!v) return "";
+    if (!plan) return "";
     const parts = [
-      "Hola, necesito coordinar un servicio. Por favor, ¿me brindan disponibilidad y costo?",
+      "Hola, necesito coordinar un servicio funerario. Por favor, ¿me brindan disponibilidad y costo?",
       "",
-      `Vehículo: ${tituloVehiculo}`,
-      v.anio ? `Año: ${v.anio}` : null,
-      v.transmision ? `Transmisión: ${v.transmision}` : null,
-      v.combustible ? `Combustible: ${v.combustible}` : null,
-      v.color ? `Color: ${v.color}` : null,
-      v.precio ? `Referencia: ${formatMoney(v.precio)}` : null,
+      `Plan: ${tituloPlan}`,
+      plan.tipo ? `Tipo: ${plan.tipo}` : null,
+      incluyeList.length ? `Incluye: ${incluyeList.join(" | ")}` : null,
+      ataudesList.length ? `Ataúdes: ${ataudesList.join(" | ")}` : null,
       "",
       `Link: ${window.location.href}`,
     ].filter(Boolean);
 
     return parts.join("\n");
-  }, [v, tituloVehiculo]);
+  }, [plan, tituloPlan, incluyeList, ataudesList]);
 
   const whatsappLink = useMemo(() => {
     return buildWhatsappLink({ phone: WHATSAPP_PHONE, text: whatsappText });
@@ -140,27 +203,24 @@ export default function Detalle() {
     );
   }
 
-
-  if (!v) {
-      return (
-  <PageBackground>
+  if (!plan) {
     return (
-      <Box sx={{ minHeight: "100vh", bgcolor: "#fafafa", py: 4 }}>
-        <Container maxWidth="lg">
-          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate("/")}>
-            Volver
-          </Button>
-          <Box sx={{ mt: 3, p: 3, bgcolor: "white", borderRadius: 3, border: "1px solid #eee" }}>
-            <Typography fontWeight={800} variant="h6">
-              Vehículo no encontrado
-            </Typography>
-            <Typography color="text.secondary">Revisa el ID o vuelve al listado.</Typography>
-          </Box>
-        </Container>
-      </Box>
+      <PageBackground>
+        <Box sx={{ minHeight: "100vh", py: 4 }}>
+          <Container maxWidth="lg">
+            <Button startIcon={<ArrowBackIcon />} onClick={() => navigate("/")}>
+              Volver
+            </Button>
+            <Box sx={{ mt: 3, p: 3, bgcolor: "white", borderRadius: 3, border: "1px solid #eee" }}>
+              <Typography fontWeight={800} variant="h6">
+                Plan no encontrado
+              </Typography>
+              <Typography color="text.secondary">Revisa el ID o vuelve al listado.</Typography>
+            </Box>
+          </Container>
+        </Box>
+      </PageBackground>
     );
-     </PageBackground>
-);
   }
 
   return (
@@ -172,27 +232,25 @@ export default function Detalle() {
 
         <Card sx={{ mt: 2, borderRadius: 3, overflow: "hidden" }}>
           <CarouselSimple
-            principal={v.fotoPrincipal}
-            fotos={v.galeriaFotos || []}
-            onOpenZoom={openZoom}
+            principal={plan.fotoPrincipal}
+            fotos={carouselFotos}
+            onOpenZoom={(src) => {
+              // intenta hallar caption si existe
+              const found = fotos.find((f) => f.src === src);
+              openZoom(resolveImg(src), found?.titulo || "");
+            }}
           />
 
           <CardContent>
             <Stack spacing={1}>
               <Typography variant="h4" fontWeight={900}>
-                {tituloVehiculo}
+                {tituloPlan}
               </Typography>
 
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                {v.anio ? <Chip label={`Año ${v.anio}`} /> : null}
-                {v.transmision ? <Chip label={v.transmision} /> : null}
-                {v.combustible ? <Chip label={v.combustible} /> : null}
-                {v.color ? <Chip label={`Color: ${v.color}`} /> : null}
+                {plan.tipo ? <Chip label={plan.tipo} /> : null}
+                {ataudesList[0] ? <Chip label={`Ataúd: ${ataudesList[0]}`} /> : null}
               </Stack>
-
-              <Typography variant="h5" fontWeight={900} sx={{ mt: 1 }}>
-                {formatMoney(v.precio)}
-              </Typography>
 
               {/* CTA PRINCIPAL */}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 1 }}>
@@ -226,40 +284,72 @@ export default function Detalle() {
               </Stack>
 
               <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Atención rápida. Si lo deseas, indícanos distrito, hora tentativa y si requieres chofer.
+                Atención rápida. Si lo deseas, indícanos distrito, hora tentativa y cualquier requerimiento adicional.
               </Typography>
 
               <Divider sx={{ my: 2 }} />
 
               <Grid container spacing={2}>
-                <Grid item xs={12} md={4}>
-                  <Typography fontWeight={800}>Datos</Typography>
-                  <Stack spacing={0.6} sx={{ mt: 1 }}>
-                    <Typography color="text.secondary">
-                      Kilometraje:{" "}
-                      <b style={{ color: "inherit" }}>
-                        {v.kilometraje ? `${v.kilometraje.toLocaleString("es-PE")} km` : "-"}
-                      </b>
-                    </Typography>
-                    <Typography color="text.secondary">
-                      Transmisión: <b style={{ color: "inherit" }}>{v.transmision || "-"}</b>
-                    </Typography>
-                    <Typography color="text.secondary">
-                      Combustible: <b style={{ color: "inherit" }}>{v.combustible || "-"}</b>
-                    </Typography>
-                  </Stack>
-                </Grid>
-
-                <Grid item xs={12} md={8}>
-                  <Typography fontWeight={800}>Características</Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-                    {(v.caracteristicas || []).length ? (
-                      v.caracteristicas.map((c, idx) => <Chip key={idx} label={c} variant="outlined" />)
+                <Grid item xs={12} md={6}>
+                  <Typography fontWeight={800}>Incluye</Typography>
+                  <Stack spacing={0.8} sx={{ mt: 1 }}>
+                    {incluyeList.length ? (
+                      incluyeList.map((t, idx) => (
+                        <Typography key={idx} color="text.secondary">
+                          • {t}
+                        </Typography>
+                      ))
                     ) : (
-                      <Typography color="text.secondary">No hay características registradas.</Typography>
+                      <Typography color="text.secondary">No se registraron ítems en “Incluye”.</Typography>
                     )}
                   </Stack>
                 </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Typography fontWeight={800}>Ataúdes</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                    {ataudesList.length ? (
+                      ataudesList.map((c, idx) => <Chip key={idx} label={c} variant="outlined" />)
+                    ) : (
+                      <Typography color="text.secondary">No se registraron ataúdes.</Typography>
+                    )}
+                  </Stack>
+                </Grid>
+
+                {/* Pie de foto (si existe en tu estructura) */}
+                {fotos.some((f) => f.titulo) ? (
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Typography fontWeight={800} sx={{ mb: 1 }}>
+                      Galería (con pie de foto)
+                    </Typography>
+
+                    <Grid container spacing={1.6}>
+                      {fotos.map((f, idx) => (
+                        <Grid item xs={12} sm={6} md={4} key={f.src + idx}>
+                          <Card sx={{ borderRadius: 3, overflow: "hidden", border: "1px solid #eee" }}>
+                            <CardActionArea onClick={() => openZoom(resolveImg(f.src), f.titulo || "")}>
+                              <CardMedia
+                                component="img"
+                                height="170"
+                                image={resolveImg(f.src)}
+                                alt={f.titulo || `foto-${idx}`}
+                                sx={{ objectFit: "cover" }}
+                              />
+                              {f.titulo ? (
+                                <CardContent sx={{ py: 1.2 }}>
+                                  <Typography fontWeight={800} variant="body2">
+                                    {f.titulo}
+                                  </Typography>
+                                </CardContent>
+                              ) : null}
+                            </CardActionArea>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Grid>
+                ) : null}
               </Grid>
             </Stack>
           </CardContent>
@@ -321,6 +411,11 @@ export default function Detalle() {
           </Box>
 
           <Box sx={{ p: 1.5, borderTop: "1px solid #eee" }}>
+            {zoomCaption ? (
+              <Typography sx={{ mb: 0.6 }} fontWeight={800}>
+                {zoomCaption}
+              </Typography>
+            ) : null}
             <Typography color="text.secondary" variant="body2">
               Zoom: <b>{Math.round(zoom * 100)}%</b>. Usa los botones para acercar o alejar.
             </Typography>
@@ -328,7 +423,7 @@ export default function Detalle() {
         </Dialog>
       </Container>
 
-      {/* BOTÓN FLOTANTE (sticky) */}
+      {/* BOTÓN FLOTANTE */}
       {WHATSAPP_PHONE ? (
         <Fab
           color="success"

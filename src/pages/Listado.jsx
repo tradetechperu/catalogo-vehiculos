@@ -33,15 +33,6 @@ function resolveImg(src) {
   return src;
 }
 
-function formatMoney(value) {
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("es-PE", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
 function uniqueValues(list, key) {
   const s = new Set();
   for (const v of list || []) {
@@ -53,23 +44,31 @@ function uniqueValues(list, key) {
   return Array.from(s).sort((a, b) => a.localeCompare(b, "es"));
 }
 
+function toArray(x) {
+  if (!x) return [];
+  if (Array.isArray(x)) return x;
+  if (typeof x === "string") {
+    // permite que venga en string con saltos o comas
+    return x
+      .split(/\r?\n|,/g)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 export default function Listado() {
   const navigate = useNavigate();
-  const [vehiculos, setVehiculos] = useState([]);
+  const [planes, setPlanes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // búsqueda libre
   const [q, setQ] = useState("");
 
-  // filtros laterales
+  // filtros laterales (adaptado a planes)
   const [filters, setFilters] = useState({
-    marca: "",
-    pasajeros: "",
-    color: "",
-    anioMin: "",
-    anioMax: "",
-    precioMin: "",
-    precioMax: "",
+    tipo: "",
+    ataud: "",
   });
 
   useEffect(() => {
@@ -77,11 +76,11 @@ export default function Listado() {
     (async () => {
       try {
         setLoading(true);
-        const r = await apiFetch("/api/vehiculos");
+        const r = await apiFetch("/api/planes");
         const data = await r.json();
-        if (alive) setVehiculos(Array.isArray(data) ? data : []);
+        if (alive) setPlanes(Array.isArray(data) ? data : []);
       } catch (e) {
-        if (alive) setVehiculos([]);
+        if (alive) setPlanes([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -90,64 +89,46 @@ export default function Listado() {
   }, []);
 
   const options = useMemo(() => {
-    return {
-      marca: uniqueValues(vehiculos, "marca"),
-      color: uniqueValues(vehiculos, "color"),
-      pasajeros: uniqueValues(vehiculos, "pasajeros"),
-    };
-  }, [vehiculos]);
+    // Si tu JSON tiene campos distintos, aquí es donde se ajusta
+    // tipo: podría ser "categoria" o "tipoPlan"
+    const tipos = uniqueValues(planes, "tipo");
+    const ataudes = Array.from(
+      new Set(
+        (planes || [])
+          .flatMap((p) => toArray(p.ataudes || p.ataud || p.productos || []))
+          .map((x) => String(x).trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, "es"));
+
+    return { tipo: tipos, ataud: ataudes };
+  }, [planes]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
 
-    const anioMin = filters.anioMin ? Number(filters.anioMin) : null;
-    const anioMax = filters.anioMax ? Number(filters.anioMax) : null;
-    const precioMin = filters.precioMin ? Number(filters.precioMin) : null;
-    const precioMax = filters.precioMax ? Number(filters.precioMax) : null;
-
-    return (vehiculos || []).filter((v) => {
+    return (planes || []).filter((p) => {
+      // blobs para búsqueda libre
       if (term) {
-        const blob =
-          `${v.marca || ""} ${v.modelo || ""} ${v.anio || ""} ${v.transmision || ""} ${v.combustible || ""} ${v.color || ""} ${v.pasajeros || ""}`.toLowerCase();
+        const incluye = toArray(p.incluye).join(" ");
+        const ataudes = toArray(p.ataudes || p.ataud || p.productos).join(" ");
+        const blob = `${p.nombre || ""} ${p.tipo || ""} ${incluye} ${ataudes}`.toLowerCase();
         if (!blob.includes(term)) return false;
       }
 
-      if (filters.marca && String(v.marca || "").trim() !== filters.marca) return false;
-      if (filters.color && String(v.color || "").trim() !== filters.color) return false;
-      if (filters.pasajeros && String(v.pasajeros || "").trim() !== filters.pasajeros) return false;
+      if (filters.tipo && String(p.tipo || "").trim() !== filters.tipo) return false;
 
-      if (anioMin !== null) {
-        const a = v.anio === null || v.anio === undefined ? null : Number(v.anio);
-        if (a === null || Number.isNaN(a) || a < anioMin) return false;
-      }
-      if (anioMax !== null) {
-        const a = v.anio === null || v.anio === undefined ? null : Number(v.anio);
-        if (a === null || Number.isNaN(a) || a > anioMax) return false;
-      }
-
-      if (precioMin !== null) {
-        const p = v.precio === null || v.precio === undefined ? null : Number(v.precio);
-        if (p === null || Number.isNaN(p) || p < precioMin) return false;
-      }
-      if (precioMax !== null) {
-        const p = v.precio === null || v.precio === undefined ? null : Number(v.precio);
-        if (p === null || Number.isNaN(p) || p > precioMax) return false;
+      if (filters.ataud) {
+        const listaAtaudes = toArray(p.ataudes || p.ataud || p.productos).map((x) => String(x).trim());
+        if (!listaAtaudes.includes(filters.ataud)) return false;
       }
 
       return true;
     });
-  }, [vehiculos, q, filters]);
+  }, [planes, q, filters]);
 
   const clearFilters = () => {
-    setFilters({
-      marca: "",
-      pasajeros: "",
-      color: "",
-      anioMin: "",
-      anioMax: "",
-      precioMin: "",
-      precioMax: "",
-    });
+    setFilters({ tipo: "", ataud: "" });
   };
 
   const FiltersPanel = (
@@ -168,15 +149,15 @@ export default function Listado() {
       <Stack spacing={1.1}>
         <TextField
           select
-          label="Marca"
-          value={filters.marca}
-          onChange={(e) => setFilters((p) => ({ ...p, marca: e.target.value }))}
+          label="Tipo de plan"
+          value={filters.tipo}
+          onChange={(e) => setFilters((p) => ({ ...p, tipo: e.target.value }))}
           fullWidth
           size="small"
           sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
         >
-          <MenuItem value="">Todas</MenuItem>
-          {options.marca.map((opt) => (
+          <MenuItem value="">Todos</MenuItem>
+          {options.tipo.map((opt) => (
             <MenuItem key={opt} value={opt}>
               {opt}
             </MenuItem>
@@ -185,32 +166,15 @@ export default function Listado() {
 
         <TextField
           select
-          label="Pasajeros"
-          value={filters.pasajeros}
-          onChange={(e) => setFilters((p) => ({ ...p, pasajeros: e.target.value }))}
+          label="Ataúd"
+          value={filters.ataud}
+          onChange={(e) => setFilters((p) => ({ ...p, ataud: e.target.value }))}
           fullWidth
           size="small"
           sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
         >
           <MenuItem value="">Todos</MenuItem>
-          {options.pasajeros.map((opt) => (
-            <MenuItem key={opt} value={opt}>
-              {opt}
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <TextField
-          select
-          label="Color"
-          value={filters.color}
-          onChange={(e) => setFilters((p) => ({ ...p, color: e.target.value }))}
-          fullWidth
-          size="small"
-          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
-        >
-          <MenuItem value="">Todos</MenuItem>
-          {options.color.map((opt) => (
+          {options.ataud.map((opt) => (
             <MenuItem key={opt} value={opt}>
               {opt}
             </MenuItem>
@@ -218,50 +182,6 @@ export default function Listado() {
         </TextField>
 
         <Divider />
-
-        <Typography fontWeight={800} variant="body2">
-          Año
-        </Typography>
-        <Stack direction="row" spacing={1}>
-          <TextField
-            label="Min"
-            value={filters.anioMin}
-            onChange={(e) => setFilters((p) => ({ ...p, anioMin: e.target.value }))}
-            fullWidth
-            size="small"
-            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
-          />
-          <TextField
-            label="Max"
-            value={filters.anioMax}
-            onChange={(e) => setFilters((p) => ({ ...p, anioMax: e.target.value }))}
-            fullWidth
-            size="small"
-            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
-          />
-        </Stack>
-
-        <Typography fontWeight={800} variant="body2">
-          Precio (USD)
-        </Typography>
-        <Stack direction="row" spacing={1}>
-          <TextField
-            label="Min"
-            value={filters.precioMin}
-            onChange={(e) => setFilters((p) => ({ ...p, precioMin: e.target.value }))}
-            fullWidth
-            size="small"
-            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
-          />
-          <TextField
-            label="Max"
-            value={filters.precioMax}
-            onChange={(e) => setFilters((p) => ({ ...p, precioMax: e.target.value }))}
-            fullWidth
-            size="small"
-            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
-          />
-        </Stack>
 
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ pt: 0.5 }}>
           <Button
@@ -289,16 +209,16 @@ export default function Listado() {
 
           <Stack spacing={1.2} sx={{ mt: 3, mb: 2 }}>
             <Typography variant="h4" fontWeight={900} sx={{ letterSpacing: "-0.4px" }}>
-              Catálogo de vehículos
+              Planes funerarios
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Selecciona un vehículo para ver el detalle. Puedes filtrar por atributos o buscar libremente.
+              Selecciona un plan para ver el detalle. Puedes filtrar por tipo o ataúd y buscar libremente.
             </Typography>
 
             <TextField
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar vehículo..."
+              placeholder="Buscar plan..."
               fullWidth
               sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
               InputProps={{
@@ -312,15 +232,12 @@ export default function Listado() {
             <Divider sx={{ pt: 0.5 }} />
           </Stack>
 
-          {/* Layout con flex: asegura filtros izquierda y tarjetas derecha */}
           <Box sx={{ display: { xs: "block", sm: "flex" }, gap: 2.4, alignItems: "flex-start" }}>
-            {/* Sticky */}
             <Box
               sx={{
                 width: { xs: "100%", sm: 300, md: 280 },
                 flexShrink: 0,
                 mb: { xs: 2.2, sm: 0 },
-
                 position: { xs: "static", sm: "sticky" },
                 top: { sm: 16 },
                 alignSelf: "flex-start",
@@ -330,7 +247,6 @@ export default function Listado() {
               {FiltersPanel}
             </Box>
 
-            {/* Tarjetas */}
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Grid container spacing={2.2}>
                 {loading
@@ -346,12 +262,17 @@ export default function Listado() {
                         </Card>
                       </Grid>
                     ))
-                  : filtered.map((v) => {
-                      const title = `${v.marca || "-"} ${v.modelo || ""}`.trim();
-                      const img = resolveImg(v.fotoPrincipal) || "/assets/placeholders/vehiculo-default.jpg";
+                  : filtered.map((p) => {
+                      const title = (p.nombre || "Plan").trim();
+                      const img =
+                        resolveImg(p.fotoPrincipal) ||
+                        "/assets/placeholders/vehiculo-default.jpg"; // si quieres, luego cambiamos placeholder
+
+                      const incluye = toArray(p.incluye).slice(0, 3);
+                      const ataudes = toArray(p.ataudes || p.ataud || p.productos).slice(0, 3);
 
                       return (
-                        <Grid item xs={12} sm={6} md={4} key={v.id}>
+                        <Grid item xs={12} sm={6} md={4} key={p.id}>
                           <Card
                             sx={{
                               borderRadius: 4,
@@ -365,7 +286,7 @@ export default function Listado() {
                               },
                             }}
                           >
-                            <CardActionArea onClick={() => navigate(`/vehiculo/${v.id}`)}>
+                            <CardActionArea onClick={() => navigate(`/plan/${p.id}`)}>
                               <Box sx={{ position: "relative" }}>
                                 <CardMedia component="img" height="210" image={img} alt={title} sx={{ objectFit: "cover" }} />
                                 <Box
@@ -383,7 +304,7 @@ export default function Listado() {
                                     backdropFilter: "blur(6px)",
                                   }}
                                 >
-                                  {v.anio ? `Año ${v.anio}` : "Disponible"}
+                                  {p.tipo ? p.tipo : "Disponible"}
                                 </Box>
                               </Box>
 
@@ -393,23 +314,36 @@ export default function Listado() {
                                 </Typography>
 
                                 <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }} useFlexGap>
-                                  {v.pasajeros ? <Chip size="small" label={`${v.pasajeros} pasajeros`} /> : null}
-                                  {v.transmision ? <Chip size="small" label={v.transmision} /> : null}
-                                  {v.combustible ? <Chip size="small" label={v.combustible} /> : null}
-                                  {v.color ? <Chip size="small" label={v.color} /> : null}
+                                  {p.tipo ? <Chip size="small" label={p.tipo} /> : null}
+                                  {ataudes[0] ? <Chip size="small" label={`Ataúd: ${ataudes[0]}`} /> : null}
                                 </Stack>
 
-                                <Stack direction="row" justifyContent="space-between" sx={{ mt: 1.6 }} alignItems="baseline">
-                                  <Typography variant="body2" color="text.secondary">
-                                    Km: {v.kilometraje ? v.kilometraje.toLocaleString("es-PE") : "-"}
-                                  </Typography>
-                                  <Typography variant="h6" fontWeight={900}>
-                                    {formatMoney(v.precio)}
-                                  </Typography>
-                                </Stack>
+                                {incluye.length ? (
+                                  <Box sx={{ mt: 1.2 }}>
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 800, mb: 0.4 }}>
+                                      Incluye
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {incluye.join(" · ")}
+                                      {toArray(p.incluye).length > incluye.length ? " · ..." : ""}
+                                    </Typography>
+                                  </Box>
+                                ) : null}
 
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.9 }}>
-                                  Ver detalle y coordinar en minutos.
+                                {ataudes.length ? (
+                                  <Box sx={{ mt: 1 }}>
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 800, mb: 0.4 }}>
+                                      Ataúdes
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {ataudes.join(" · ")}
+                                      {toArray(p.ataudes || p.ataud || p.productos).length > ataudes.length ? " · ..." : ""}
+                                    </Typography>
+                                  </Box>
+                                ) : null}
+
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
+                                  Ver detalle del plan.
                                 </Typography>
                               </CardContent>
                             </CardActionArea>
