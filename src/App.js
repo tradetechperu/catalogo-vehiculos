@@ -1,5 +1,7 @@
+// frontend/src/App.js
 import React from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+
 import Listado from "./pages/Listado";
 import Detalle from "./pages/Detalle";
 
@@ -16,9 +18,13 @@ export default function App() {
         <Route path="/vehiculo/:id" element={<Detalle />} />
 
         {/* Admin */}
-        <Route path="/admin" element={<LoginAdmin />} />
+        <Route path="/admin/login" element={<LoginAdmin />} />
         <Route path="/admin/vehiculos" element={<AdminVehiculos />} />
+        <Route path="/admin/vehiculos/nuevo" element={<FormVehiculo />} />
         <Route path="/admin/vehiculos/:id" element={<FormVehiculo />} />
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
