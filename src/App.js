@@ -1,13 +1,14 @@
-// frontend/src/App.js
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
+// Admin
+import LoginAdmin from "./pages/Admin/LoginAdmin";
+import AdminPlanes from "./pages/Admin/AdminPlanes";
+import FormPlan from "./pages/Admin/FormPlan";
+
+// Público
 import Listado from "./pages/Listado";
 import Detalle from "./pages/Detalle";
-
-import LoginAdmin from "./pages/Admin/LoginAdmin";
-import AdminVehiculos from "./pages/Admin/AdminVehiculos";
-import FormVehiculo from "./pages/Admin/FormVehiculo";
 
 export default function App() {
   return (
@@ -15,15 +16,15 @@ export default function App() {
       <Routes>
         {/* Público */}
         <Route path="/" element={<Listado />} />
-        <Route path="/vehiculo/:id" element={<Detalle />} />
+        <Route path="/plan/:id" element={<Detalle />} />
 
         {/* Admin */}
         <Route path="/admin/login" element={<LoginAdmin />} />
-        <Route path="/admin/vehiculos" element={<AdminVehiculos />} />
-        <Route path="/admin/vehiculos/nuevo" element={<FormVehiculo />} />
-        <Route path="/admin/vehiculos/:id" element={<FormVehiculo />} />
+        <Route path="/admin/planes" element={<AdminPlanes />} />
+        <Route path="/admin/planes/nuevo" element={<FormPlan />} />
+        <Route path="/admin/planes/:id" element={<FormPlan />} />
 
-        {/* Fallback */}
+        {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -23,7 +23,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { useNavigate } from "react-router-dom";
 
-export default function AdminVehiculos() {
+export default function AdminPlanes() {
   const navigate = useNavigate();
   const [planes, setPlanes] = useState([]);
   const [error, setError] = useState("");
@@ -31,15 +31,12 @@ export default function AdminVehiculos() {
   const load = async () => {
     setError("");
     try {
-      // Opción A: mantenemos endpoint /vehiculos, pero ahora devuelve planes
-      const data = await api("/api/admin/vehiculos", { method: "GET" });
+      const data = await api("/api/admin/planes", { method: "GET" });
       setPlanes(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e.message);
       const msg = (e.message || "").toLowerCase();
-      if (msg.includes("no autorizado") || msg.includes("token")) {
-        navigate("/admin");
-      }
+      if (msg.includes("no autorizado") || msg.includes("token")) navigate("/admin/login");
     }
   };
 
@@ -51,7 +48,7 @@ export default function AdminVehiculos() {
   const onDelete = async (id) => {
     if (!window.confirm("¿Eliminar este plan?")) return;
     try {
-      await api(`/api/admin/vehiculos/${id}`, { method: "DELETE" });
+      await api(`/api/admin/planes/${id}`, { method: "DELETE" });
       await load();
     } catch (e) {
       setError(e.message);
@@ -60,7 +57,7 @@ export default function AdminVehiculos() {
 
   const logout = () => {
     localStorage.removeItem("admin_token");
-    navigate("/admin");
+    navigate("/admin/login");
   };
 
   return (
@@ -79,7 +76,7 @@ export default function AdminVehiculos() {
             <Button variant="outlined" startIcon={<LogoutIcon />} onClick={logout}>
               Salir
             </Button>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate("/admin/vehiculos/nuevo")}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate("/admin/planes/nuevo")}>
               Nuevo Plan
             </Button>
           </Stack>
@@ -96,21 +93,11 @@ export default function AdminVehiculos() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>
-                    <b>Nombre</b>
-                  </TableCell>
-                  <TableCell>
-                    <b>Incluye</b>
-                  </TableCell>
-                  <TableCell>
-                    <b>Ataúdes</b>
-                  </TableCell>
-                  <TableCell>
-                    <b>Activo</b>
-                  </TableCell>
-                  <TableCell>
-                    <b>Acciones</b>
-                  </TableCell>
+                  <TableCell><b>Nombre</b></TableCell>
+                  <TableCell><b>Incluye</b></TableCell>
+                  <TableCell><b>Ataúdes</b></TableCell>
+                  <TableCell><b>Activo</b></TableCell>
+                  <TableCell><b>Acciones</b></TableCell>
                 </TableRow>
               </TableHead>
 
@@ -127,17 +114,11 @@ export default function AdminVehiculos() {
                     </TableCell>
 
                     <TableCell>
-                      {(Array.isArray(p.incluye) ? p.incluye : [])
-                        .slice(0, 3)
-                        .map((x, idx) => (
-                          <Typography key={idx} variant="body2">
-                            • {x}
-                          </Typography>
-                        ))}
+                      {(Array.isArray(p.incluye) ? p.incluye : []).slice(0, 3).map((x, idx) => (
+                        <Typography key={idx} variant="body2">• {x}</Typography>
+                      ))}
                       {(Array.isArray(p.incluye) ? p.incluye.length : 0) > 3 ? (
-                        <Typography variant="body2" color="text.secondary">
-                          + más...
-                        </Typography>
+                        <Typography variant="body2" color="text.secondary">+ más...</Typography>
                       ) : null}
                     </TableCell>
 
@@ -153,7 +134,7 @@ export default function AdminVehiculos() {
                     <TableCell>{p.activo === false ? "No" : "Sí"}</TableCell>
 
                     <TableCell>
-                      <IconButton onClick={() => navigate(`/admin/vehiculos/${p.id}`)} title="Editar">
+                      <IconButton onClick={() => navigate(`/admin/planes/${p.id}`)} title="Editar">
                         <EditIcon />
                       </IconButton>
                       <IconButton onClick={() => onDelete(p.id)} title="Eliminar">
