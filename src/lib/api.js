@@ -6,6 +6,7 @@ export function apiFetch(path, options = {}) {
   if (!path.startsWith("/")) path = "/" + path;
 
   return fetch(`${BACKEND}${path}`, {
+    cache: "no-store",
     ...options,
     headers: {
       "Content-Type": "application/json",

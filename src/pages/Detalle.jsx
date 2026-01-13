@@ -33,9 +33,11 @@ import { useNavigate, useParams } from "react-router-dom";
 const WHATSAPP_PHONE = (process.env.REACT_APP_WHATSAPP_PHONE || "").replace(/\D/g, "");
 const CONTACT_PHONE = (process.env.REACT_APP_CONTACT_PHONE || "").replace(/\D/g, "");
 
-// Si tus imágenes vienen como /uploads/...
+// Imágenes /uploads/...
 const BACKEND = process.env.REACT_APP_BACKEND_ORIGIN || "";
-function resolveImg(src) {
+function resolveImg(img) {
+  if (!img) return "";
+  const src = typeof img === "string" ? img : img?.src; // acepta string o {src,titulo}
   if (!src) return "";
   if (src.startsWith("http://") || src.startsWith("https://")) return src;
   if (BACKEND && src.startsWith("/uploads/")) return `${BACKEND}${src}`;
@@ -61,38 +63,33 @@ function toArray(x) {
 }
 
 /**
- * Normaliza fotos para soportar:
- * - string[]: ["/uploads/a.jpg", ...]
- * - objetos: [{ src, titulo }, { url, caption }, ...]
- * - también respeta fotoPrincipal si existe
+ * Backend actual:
+ * - fotoPrincipal: { src, titulo }
+ * - galeria: [{ src, titulo }, ...]
  */
 function normalizeFotos(plan) {
-  const principal = plan?.fotoPrincipal ? { src: plan.fotoPrincipal, titulo: "" } : null;
-  const raw = plan?.galeriaFotos || plan?.fotos || [];
-
-  const list = (Array.isArray(raw) ? raw : []).map((x) => {
-    if (!x) return null;
-    if (typeof x === "string") return { src: x, titulo: "" };
-    // intenta varias convenciones
-    const src = x.src || x.url || x.path || x.foto || "";
-    const titulo = x.titulo || x.caption || x.nombre || x.label || "";
-    return src ? { src, titulo } : null;
-  }).filter(Boolean);
-
-  // Dedup por src
-  const seen = new Set();
   const out = [];
+  const seen = new Set();
+
   const push = (it) => {
-    if (!it?.src) return;
-    if (seen.has(it.src)) return;
-    seen.add(it.src);
-    out.push(it);
+    if (!it) return;
+    const src = typeof it === "string" ? it : it?.src;
+    if (!src) return;
+    if (seen.has(src)) return;
+    seen.add(src);
+    out.push({
+      src,
+      titulo: typeof it === "string" ? "" : (it?.titulo || ""),
+    });
   };
 
-  if (principal) push(principal);
-  list.forEach(push);
+  // Principal
+  if (plan?.fotoPrincipal) push(plan.fotoPrincipal);
 
-  // Si no hay principal, toma primera como principal "lógica"
+  // Galería (tu backend usa "galeria")
+  const gal = Array.isArray(plan?.galeria) ? plan.galeria : [];
+  gal.forEach(push);
+
   return out;
 }
 
@@ -103,15 +100,16 @@ export default function Detalle() {
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // --- Zoom modal state ---
+  // Zoom modal
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoomSrc, setZoomSrc] = useState("");
   const [zoomCaption, setZoomCaption] = useState("");
   const [zoom, setZoom] = useState(1);
 
   const openZoom = (src, caption = "") => {
-    if (!src) return;
-    setZoomSrc(src);
+    const s = resolveImg(src);
+    if (!s) return;
+    setZoomSrc(s);
     setZoomCaption(caption || "");
     setZoom(1);
     setZoomOpen(true);
@@ -133,12 +131,9 @@ export default function Detalle() {
     (async () => {
       try {
         setLoading(true);
-
-        // CAMBIO CLAVE: planes
         const r = await apiFetch(`/api/planes/${id}`);
         if (!r.ok) throw new Error("Not found");
         const data = await r.json();
-
         if (alive) setPlan(data);
       } catch (e) {
         if (alive) setPlan(null);
@@ -154,15 +149,13 @@ export default function Detalle() {
 
   const tituloPlan = useMemo(() => {
     if (!plan) return "";
-    return (plan.nombre || plan.titulo || "Plan funerario").trim();
+    return (plan.nombre || "Plan funerario").trim();
   }, [plan]);
 
   const incluyeList = useMemo(() => toArray(plan?.incluye), [plan]);
-  const ataudesList = useMemo(() => toArray(plan?.ataudes || plan?.ataud || plan?.productos), [plan]);
+  const ataudesList = useMemo(() => toArray(plan?.ataudes), [plan]);
 
   const fotos = useMemo(() => normalizeFotos(plan), [plan]);
-
-  // Para reutilizar CarouselSimple (que probablemente espera string[])
   const carouselFotos = useMemo(() => fotos.map((f) => f.src), [fotos]);
 
   const whatsappText = useMemo(() => {
@@ -171,7 +164,6 @@ export default function Detalle() {
       "Hola, necesito coordinar un servicio funerario. Por favor, ¿me brindan disponibilidad y costo?",
       "",
       `Plan: ${tituloPlan}`,
-      plan.tipo ? `Tipo: ${plan.tipo}` : null,
       incluyeList.length ? `Incluye: ${incluyeList.join(" | ")}` : null,
       ataudesList.length ? `Ataúdes: ${ataudesList.join(" | ")}` : null,
       "",
@@ -181,9 +173,7 @@ export default function Detalle() {
     return parts.join("\n");
   }, [plan, tituloPlan, incluyeList, ataudesList]);
 
-  const whatsappLink = useMemo(() => {
-    return buildWhatsappLink({ phone: WHATSAPP_PHONE, text: whatsappText });
-  }, [whatsappText]);
+  const whatsappLink = useMemo(() => buildWhatsappLink({ phone: WHATSAPP_PHONE, text: whatsappText }), [whatsappText]);
 
   if (loading) {
     return (
@@ -232,12 +222,11 @@ export default function Detalle() {
 
         <Card sx={{ mt: 2, borderRadius: 3, overflow: "hidden" }}>
           <CarouselSimple
-            principal={plan.fotoPrincipal}
+            principal={plan?.fotoPrincipal?.src || ""}
             fotos={carouselFotos}
             onOpenZoom={(src) => {
-              // intenta hallar caption si existe
               const found = fotos.find((f) => f.src === src);
-              openZoom(resolveImg(src), found?.titulo || "");
+              openZoom(src, found?.titulo || "");
             }}
           />
 
@@ -247,12 +236,17 @@ export default function Detalle() {
                 {tituloPlan}
               </Typography>
 
+              {plan.descripcionCorta ? (
+                <Typography color="text.secondary">{plan.descripcionCorta}</Typography>
+              ) : null}
+
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                {plan.tipo ? <Chip label={plan.tipo} /> : null}
-                {ataudesList[0] ? <Chip label={`Ataúd: ${ataudesList[0]}`} /> : null}
+                {(plan.tags || []).slice(0, 6).map((t, idx) => (
+                  <Chip key={idx} label={t} />
+                ))}
+                {plan.activo === false ? <Chip color="warning" label="Inactivo" /> : null}
               </Stack>
 
-              {/* CTA PRINCIPAL */}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 1 }}>
                 <Button
                   variant="contained"
@@ -283,10 +277,6 @@ export default function Detalle() {
                 </Button>
               </Stack>
 
-              <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Atención rápida. Si lo deseas, indícanos distrito, hora tentativa y cualquier requerimiento adicional.
-              </Typography>
-
               <Divider sx={{ my: 2 }} />
 
               <Grid container spacing={2}>
@@ -316,7 +306,6 @@ export default function Detalle() {
                   </Stack>
                 </Grid>
 
-                {/* Pie de foto (si existe en tu estructura) */}
                 {fotos.some((f) => f.titulo) ? (
                   <Grid item xs={12}>
                     <Divider sx={{ my: 1.5 }} />
@@ -328,11 +317,11 @@ export default function Detalle() {
                       {fotos.map((f, idx) => (
                         <Grid item xs={12} sm={6} md={4} key={f.src + idx}>
                           <Card sx={{ borderRadius: 3, overflow: "hidden", border: "1px solid #eee" }}>
-                            <CardActionArea onClick={() => openZoom(resolveImg(f.src), f.titulo || "")}>
+                            <CardActionArea onClick={() => openZoom(f.src, f.titulo || "")}>
                               <CardMedia
                                 component="img"
                                 height="170"
-                                image={resolveImg(f.src)}
+                                image={resolveImg(f)}
                                 alt={f.titulo || `foto-${idx}`}
                                 sx={{ objectFit: "cover" }}
                               />

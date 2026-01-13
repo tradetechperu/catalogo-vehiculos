@@ -26,11 +26,23 @@ import { useNavigate } from "react-router-dom";
 
 const BACKEND = process.env.REACT_APP_BACKEND_ORIGIN || "";
 
-function resolveImg(src) {
+// Acepta string o {src,titulo}
+function resolveImg(img) {
+  if (!img) return "";
+  const src = typeof img === "string" ? img : img?.src;
   if (!src) return "";
   if (src.startsWith("http://") || src.startsWith("https://")) return src;
   if (BACKEND && src.startsWith("/uploads/")) return `${BACKEND}${src}`;
   return src;
+}
+
+function formatMoney(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  return new Intl.NumberFormat("es-PE", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(value));
 }
 
 function uniqueValues(list, key) {
@@ -44,19 +56,6 @@ function uniqueValues(list, key) {
   return Array.from(s).sort((a, b) => a.localeCompare(b, "es"));
 }
 
-function toArray(x) {
-  if (!x) return [];
-  if (Array.isArray(x)) return x;
-  if (typeof x === "string") {
-    // permite que venga en string con saltos o comas
-    return x
-      .split(/\r?\n|,/g)
-      .map((t) => t.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
 export default function Listado() {
   const navigate = useNavigate();
   const [planes, setPlanes] = useState([]);
@@ -65,10 +64,12 @@ export default function Listado() {
   // búsqueda libre
   const [q, setQ] = useState("");
 
-  // filtros laterales (adaptado a planes)
+  // filtros laterales
   const [filters, setFilters] = useState({
-    tipo: "",
-    ataud: "",
+    tag: "",
+    precioMin: "",
+    precioMax: "",
+    activo: "todos",
   });
 
   useEffect(() => {
@@ -89,38 +90,52 @@ export default function Listado() {
   }, []);
 
   const options = useMemo(() => {
-    // Si tu JSON tiene campos distintos, aquí es donde se ajusta
-    // tipo: podría ser "categoria" o "tipoPlan"
-    const tipos = uniqueValues(planes, "tipo");
-    const ataudes = Array.from(
-      new Set(
-        (planes || [])
-          .flatMap((p) => toArray(p.ataudes || p.ataud || p.productos || []))
-          .map((x) => String(x).trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b, "es"));
-
-    return { tipo: tipos, ataud: ataudes };
+    // tags únicos
+    const allTags = new Set();
+    (planes || []).forEach((p) => (p.tags || []).forEach((t) => allTags.add(String(t).trim())));
+    return {
+      tags: Array.from(allTags).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")),
+    };
   }, [planes]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
+    const precioMin = filters.precioMin ? Number(filters.precioMin) : null;
+    const precioMax = filters.precioMax ? Number(filters.precioMax) : null;
 
     return (planes || []).filter((p) => {
-      // blobs para búsqueda libre
       if (term) {
-        const incluye = toArray(p.incluye).join(" ");
-        const ataudes = toArray(p.ataudes || p.ataud || p.productos).join(" ");
-        const blob = `${p.nombre || ""} ${p.tipo || ""} ${incluye} ${ataudes}`.toLowerCase();
+        const blob = [
+          p.nombre,
+          p.descripcionCorta,
+          ...(p.incluye || []),
+          ...(p.ataudes || []),
+          ...(p.tags || []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
         if (!blob.includes(term)) return false;
       }
 
-      if (filters.tipo && String(p.tipo || "").trim() !== filters.tipo) return false;
+      if (filters.tag) {
+        const has = (p.tags || []).map(String).includes(filters.tag);
+        if (!has) return false;
+      }
 
-      if (filters.ataud) {
-        const listaAtaudes = toArray(p.ataudes || p.ataud || p.productos).map((x) => String(x).trim());
-        if (!listaAtaudes.includes(filters.ataud)) return false;
+      if (filters.activo !== "todos") {
+        const wanted = filters.activo === "activos";
+        if (Boolean(p.activo) !== wanted) return false;
+      }
+
+      const precio = p.precio === null || p.precio === undefined || p.precio === "" ? null : Number(p.precio);
+
+      if (precioMin !== null) {
+        if (precio === null || Number.isNaN(precio) || precio < precioMin) return false;
+      }
+      if (precioMax !== null) {
+        if (precio === null || Number.isNaN(precio) || precio > precioMax) return false;
       }
 
       return true;
@@ -128,7 +143,7 @@ export default function Listado() {
   }, [planes, q, filters]);
 
   const clearFilters = () => {
-    setFilters({ tipo: "", ataud: "" });
+    setFilters({ tag: "", precioMin: "", precioMax: "", activo: "todos" });
   };
 
   const FiltersPanel = (
@@ -149,15 +164,15 @@ export default function Listado() {
       <Stack spacing={1.1}>
         <TextField
           select
-          label="Tipo de plan"
-          value={filters.tipo}
-          onChange={(e) => setFilters((p) => ({ ...p, tipo: e.target.value }))}
+          label="Tag"
+          value={filters.tag}
+          onChange={(e) => setFilters((p) => ({ ...p, tag: e.target.value }))}
           fullWidth
           size="small"
           sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
         >
           <MenuItem value="">Todos</MenuItem>
-          {options.tipo.map((opt) => (
+          {options.tags.map((opt) => (
             <MenuItem key={opt} value={opt}>
               {opt}
             </MenuItem>
@@ -166,22 +181,41 @@ export default function Listado() {
 
         <TextField
           select
-          label="Ataúd"
-          value={filters.ataud}
-          onChange={(e) => setFilters((p) => ({ ...p, ataud: e.target.value }))}
+          label="Estado"
+          value={filters.activo}
+          onChange={(e) => setFilters((p) => ({ ...p, activo: e.target.value }))}
           fullWidth
           size="small"
           sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
         >
-          <MenuItem value="">Todos</MenuItem>
-          {options.ataud.map((opt) => (
-            <MenuItem key={opt} value={opt}>
-              {opt}
-            </MenuItem>
-          ))}
+          <MenuItem value="todos">Todos</MenuItem>
+          <MenuItem value="activos">Activos</MenuItem>
+          <MenuItem value="inactivos">Inactivos</MenuItem>
         </TextField>
 
         <Divider />
+
+        <Typography fontWeight={800} variant="body2">
+          Precio (USD)
+        </Typography>
+        <Stack direction="row" spacing={1}>
+          <TextField
+            label="Min"
+            value={filters.precioMin}
+            onChange={(e) => setFilters((p) => ({ ...p, precioMin: e.target.value }))}
+            fullWidth
+            size="small"
+            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
+          />
+          <TextField
+            label="Max"
+            value={filters.precioMax}
+            onChange={(e) => setFilters((p) => ({ ...p, precioMax: e.target.value }))}
+            fullWidth
+            size="small"
+            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, bgcolor: "white" } }}
+          />
+        </Stack>
 
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ pt: 0.5 }}>
           <Button
@@ -212,7 +246,7 @@ export default function Listado() {
               Planes funerarios
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Selecciona un plan para ver el detalle. Puedes filtrar por tipo o ataúd y buscar libremente.
+              Selecciona un plan para ver el detalle. Puedes buscar por nombre, incluye, ataúdes o tags.
             </Typography>
 
             <TextField
@@ -264,12 +298,7 @@ export default function Listado() {
                     ))
                   : filtered.map((p) => {
                       const title = (p.nombre || "Plan").trim();
-                      const img =
-                        resolveImg(p.fotoPrincipal) ||
-                        "/assets/placeholders/vehiculo-default.jpg"; // si quieres, luego cambiamos placeholder
-
-                      const incluye = toArray(p.incluye).slice(0, 3);
-                      const ataudes = toArray(p.ataudes || p.ataud || p.productos).slice(0, 3);
+                      const img = resolveImg(p.fotoPrincipal) || "/assets/placeholders/vehiculo-default.jpg";
 
                       return (
                         <Grid item xs={12} sm={6} md={4} key={p.id}>
@@ -287,63 +316,36 @@ export default function Listado() {
                             }}
                           >
                             <CardActionArea onClick={() => navigate(`/plan/${p.id}`)}>
-                              <Box sx={{ position: "relative" }}>
-                                <CardMedia component="img" height="210" image={img} alt={title} sx={{ objectFit: "cover" }} />
-                                <Box
-                                  sx={{
-                                    position: "absolute",
-                                    left: 12,
-                                    top: 12,
-                                    bgcolor: "rgba(17,17,17,0.72)",
-                                    color: "white",
-                                    px: 1.2,
-                                    py: 0.6,
-                                    borderRadius: 2,
-                                    fontWeight: 800,
-                                    fontSize: 12,
-                                    backdropFilter: "blur(6px)",
-                                  }}
-                                >
-                                  {p.tipo ? p.tipo : "Disponible"}
-                                </Box>
-                              </Box>
-
+                              <CardMedia component="img" height="210" image={img} alt={title} sx={{ objectFit: "cover" }} />
                               <CardContent sx={{ p: 2 }}>
                                 <Typography variant="h6" fontWeight={900} sx={{ mb: 0.6 }} noWrap>
                                   {title}
                                 </Typography>
 
+                                {p.descripcionCorta ? (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                    {p.descripcionCorta}
+                                  </Typography>
+                                ) : null}
+
                                 <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }} useFlexGap>
-                                  {p.tipo ? <Chip size="small" label={p.tipo} /> : null}
-                                  {ataudes[0] ? <Chip size="small" label={`Ataúd: ${ataudes[0]}`} /> : null}
+                                  {(p.tags || []).slice(0, 4).map((t, idx) => (
+                                    <Chip key={idx} size="small" label={t} />
+                                  ))}
+                                  {p.activo === false ? <Chip size="small" color="warning" label="Inactivo" /> : null}
                                 </Stack>
 
-                                {incluye.length ? (
-                                  <Box sx={{ mt: 1.2 }}>
-                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 800, mb: 0.4 }}>
-                                      Incluye
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                      {incluye.join(" · ")}
-                                      {toArray(p.incluye).length > incluye.length ? " · ..." : ""}
-                                    </Typography>
-                                  </Box>
-                                ) : null}
+                                <Stack direction="row" justifyContent="space-between" sx={{ mt: 1.6 }} alignItems="baseline">
+                                  <Typography variant="body2" color="text.secondary">
+                                    Incluye: {(p.incluye || []).length}
+                                  </Typography>
+                                  <Typography variant="h6" fontWeight={900}>
+                                    {formatMoney(p.precio)}
+                                  </Typography>
+                                </Stack>
 
-                                {ataudes.length ? (
-                                  <Box sx={{ mt: 1 }}>
-                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 800, mb: 0.4 }}>
-                                      Ataúdes
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                      {ataudes.join(" · ")}
-                                      {toArray(p.ataudes || p.ataud || p.productos).length > ataudes.length ? " · ..." : ""}
-                                    </Typography>
-                                  </Box>
-                                ) : null}
-
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
-                                  Ver detalle del plan.
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.9 }}>
+                                  Ver detalle y coordinar.
                                 </Typography>
                               </CardContent>
                             </CardActionArea>
