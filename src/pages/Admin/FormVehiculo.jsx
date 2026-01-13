@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { api } from "../../utils/api";
 import {
   Box,
   Container,
@@ -17,47 +18,17 @@ import {
 } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 
-const BACKEND = process.env.REACT_APP_BACKEND_ORIGIN || "";
+const API_BASE = process.env.REACT_APP_API_URL || "";
 
 function resolveImg(src) {
   if (!src) return "";
   if (src.startsWith("http://") || src.startsWith("https://")) return src;
-  if (BACKEND && src.startsWith("/uploads/")) return `${BACKEND}${src}`;
+
+  // Si el backend sirve /uploads como estático, resolvemos contra API_BASE
+  if (src.startsWith("/uploads/") && API_BASE) return `${API_BASE}${src}`;
+
   return src;
 }
-
-function getToken() {
-  return localStorage.getItem("admin_token") || "";
-}
-
-/**
- * API helper:
- * - Usa x-admin-token (coherente con backend actual)
- * - Parsea respuesta como text y luego JSON (evita "Unexpected token <")
- */
-async function api(path, options = {}) {
-  const token = getToken();
-  const r = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-token": token,
-      ...(options.headers || {}),
-    },
-  });
-
-  const text = await r.text();
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { raw: text };
-  }
-
-  if (!r.ok) throw new Error(data?.message || "Error");
-  return data;
-}
-
 
 export default function FormVehiculo() {
   const navigate = useNavigate();
@@ -76,7 +47,7 @@ export default function FormVehiculo() {
     transmision: "",
     combustible: "",
     color: "",
-    pasajeros: "", // NUEVO
+    pasajeros: "",
     fotoPrincipal: "",
     galeriaFotos: [],
     caracteristicasText: "",
@@ -86,6 +57,7 @@ export default function FormVehiculo() {
     (async () => {
       if (isNew) return;
       try {
+        // Carga lista y ubica el vehículo por id (backend actual expone listado admin)
         const v = await api(`/api/admin/vehiculos`, { method: "GET" });
         const found = (Array.isArray(v) ? v : []).find((x) => x.id === id);
         if (!found) throw new Error("No encontrado");
@@ -114,25 +86,28 @@ export default function FormVehiculo() {
   const set = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
   const uploadGallery = async (files) => {
-    const token = getToken();
+    setError("");
+
+    if (!API_BASE) {
+      throw new Error("REACT_APP_API_URL no está configurado en el frontend.");
+    }
+
+    const token = localStorage.getItem("admin_token") || "";
+    if (!token) throw new Error("No autorizado");
+
     const fd = new FormData();
     for (const f of files) fd.append("files", f);
 
-    const r = await fetch("/api/upload/multiple", {
+    const r = await fetch(`${API_BASE}/api/upload/multiple`, {
       method: "POST",
-      headers: { "x-admin-token": token },
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
       body: fd,
     });
 
-    const text = await r.text();
-    let data = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = { raw: text };
-    }
-
-    if (!r.ok) throw new Error(data?.message || data?.raw || "Error al subir imágenes de galería");
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data?.message || "Error al subir imágenes de galería");
     return data.paths || [];
   };
 
@@ -170,8 +145,7 @@ export default function FormVehiculo() {
 
       let newPrincipal = p.fotoPrincipal;
       if (p.fotoPrincipal === src) {
-        const candidate = newGaleria[0] || "";
-        newPrincipal = candidate;
+        newPrincipal = newGaleria[0] || "";
       }
 
       return {
@@ -185,6 +159,7 @@ export default function FormVehiculo() {
   const onSave = async () => {
     setError("");
     setSaving(true);
+
     try {
       const payload = {
         marca: form.marca.trim(),
@@ -195,7 +170,7 @@ export default function FormVehiculo() {
         transmision: form.transmision.trim(),
         combustible: form.combustible.trim(),
         color: form.color.trim(),
-        pasajeros: form.pasajeros === "" ? null : Number(form.pasajeros), // NUEVO
+        pasajeros: form.pasajeros === "" ? null : Number(form.pasajeros),
         fotoPrincipal: form.fotoPrincipal.trim(),
         galeriaFotos: Array.isArray(form.galeriaFotos) ? form.galeriaFotos : [],
         caracteristicas: form.caracteristicasText
@@ -241,9 +216,7 @@ export default function FormVehiculo() {
             <Typography variant="h4" fontWeight={900}>
               {isNew ? "Nuevo Vehículo" : "Editar Vehículo"}
             </Typography>
-            <Typography color="text.secondary">
-              Sube fotos, marca una como principal y gestiona características.
-            </Typography>
+            <Typography color="text.secondary">Sube fotos, marca una como principal y gestiona características.</Typography>
           </Box>
           <Button variant="outlined" onClick={() => navigate("/admin/vehiculos")}>
             Volver
@@ -286,7 +259,6 @@ export default function FormVehiculo() {
                 <TextField label="Color" value={form.color} onChange={set("color")} fullWidth />
               </Grid>
 
-              {/* NUEVO: PASAJEROS */}
               <Grid item xs={12} sm={4}>
                 <TextField label="Pasajeros" value={form.pasajeros} onChange={set("pasajeros")} fullWidth />
               </Grid>
@@ -319,8 +291,8 @@ export default function FormVehiculo() {
                           const curr = Array.isArray(p.galeriaFotos) ? p.galeriaFotos : [];
                           const merged = [...curr];
 
-                          for (const path of paths) {
-                            if (path && !merged.includes(path)) merged.push(path);
+                          for (const pth of paths) {
+                            if (pth && !merged.includes(pth)) merged.push(pth);
                           }
 
                           // si no hay principal, toma la primera subida

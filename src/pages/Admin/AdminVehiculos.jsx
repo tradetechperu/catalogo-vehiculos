@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { api } from "../../utils/api";
 import {
   Box,
   Container,
@@ -20,26 +21,6 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { useNavigate } from "react-router-dom";
-const API_BASE = process.env.REACT_APP_API_URL;
-
-function getToken() {
-  return localStorage.getItem("admin_token") || "";
-}
-
-async function api(path, options = {}) {
-  const token = getToken();
-  const r = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.message || "Error");
-  return data;
-}
 
 export default function AdminVehiculos() {
   const navigate = useNavigate();
