@@ -20,6 +20,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { useNavigate } from "react-router-dom";
+const API_BASE = process.env.REACT_APP_API_URL;
 
 function getToken() {
   return localStorage.getItem("admin_token") || "";
@@ -27,7 +28,7 @@ function getToken() {
 
 async function api(path, options = {}) {
   const token = getToken();
-  const r = await fetch(path, {
+  const r = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
