@@ -37,7 +37,6 @@ function getToken() {
  */
 async function api(path, options = {}) {
   const token = getToken();
-
   const r = await fetch(path, {
     ...options,
     headers: {
@@ -55,9 +54,10 @@ async function api(path, options = {}) {
     data = { raw: text };
   }
 
-  if (!r.ok) throw new Error(data?.message || data?.raw || "Error");
+  if (!r.ok) throw new Error(data?.message || "Error");
   return data;
 }
+
 
 export default function FormVehiculo() {
   const navigate = useNavigate();
