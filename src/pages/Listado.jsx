@@ -45,17 +45,6 @@ function formatMoney(value) {
   }).format(Number(value));
 }
 
-function uniqueValues(list, key) {
-  const s = new Set();
-  for (const v of list || []) {
-    const val = v?.[key];
-    if (val !== null && val !== undefined && String(val).trim() !== "") {
-      s.add(String(val).trim());
-    }
-  }
-  return Array.from(s).sort((a, b) => a.localeCompare(b, "es"));
-}
-
 export default function Listado() {
   const navigate = useNavigate();
   const [planes, setPlanes] = useState([]);
