@@ -44,7 +44,7 @@ export default function LoginAdmin() {
       if (!data?.token) throw new Error("Token no recibido");
 
       localStorage.setItem("admin_token", data.token);
-      navigate("/admin/vehiculos");
+      navigate("/admin/planes");
     } catch (e) {
       setError(e.message);
     } finally {
